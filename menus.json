@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-04T14:03:24.921Z",
+  "generated_at": "2026-11-06T07:33:01.294Z",
   "chains": {
     "katsuya": {
       "name": "かつや",
@@ -9,34 +9,17 @@
           "brand": "かつや",
           "brandSlug": "katsuya",
           "category": "期間限定",
-          "name": "海老トリプル丼",
-          "description": "税込￥979。かつや公式発表の期間限定・新メニュー",
-          "price": "税込￥979",
-          "sourceUrl": "https://www.arclandservice.co.jp/katsuya/menu/22442/?identifier=",
+          "name": "あいがけ洋風カツライス",
+          "description": "税込￥869。かつや公式発表の期間限定・新メニュー",
+          "price": "税込￥869",
+          "sourceUrl": "https://www.arclandservice.co.jp/katsuya/menu/22451/?identifier=",
           "emoji": "🍛",
           "bg": "#f9e0c7",
           "isLimited": true,
           "isNew": true,
           "isOfficial": true,
           "sourceDate": "期間限定メニュー",
-          "image": "https://www.arclandservice.co.jp/katsuya/wp-content/themes/arclandservice-group/assets/img/katsuya/menu/triple-don.jpg"
-        },
-        {
-          "id": "katsuya_lim_2",
-          "brand": "かつや",
-          "brandSlug": "katsuya",
-          "category": "期間限定",
-          "name": "海老トリプル定食",
-          "description": "税込￥1,089。かつや公式発表の期間限定・新メニュー",
-          "price": "税込￥1,089",
-          "sourceUrl": "https://www.arclandservice.co.jp/katsuya/menu/22443/?identifier=",
-          "emoji": "🍛",
-          "bg": "#f9e0c7",
-          "isLimited": true,
-          "isNew": true,
-          "isOfficial": true,
-          "sourceDate": "期間限定メニュー",
-          "image": "https://www.arclandservice.co.jp/katsuya/wp-content/themes/arclandservice-group/assets/img/katsuya/menu/triple-teishoku.jpg"
+          "image": "https://www.arclandservice.co.jp/katsuya/wp-content/themes/arclandservice-group/assets/img/katsuya/menu/261106-katsu-rice.jpg"
         }
       ]
     },
@@ -597,40 +580,6 @@
           "brand": "丸源ラーメン",
           "brandSlug": "marugen",
           "category": "期間限定",
-          "name": "濃厚 鶏白湯そば",
-          "description": "鶏と野菜の旨みを凝縮し、丁寧にじっくり炊き上げた濃厚な塩仕⽴てのスープです。",
-          "price": "¥979",
-          "sourceUrl": "https://www.syodai-marugen.jp/menu/season/2609_toripaitan",
-          "emoji": "🍜",
-          "bg": "#fde8e8",
-          "isLimited": true,
-          "isNew": true,
-          "isOfficial": true,
-          "sourceDate": "期間限定メニュー",
-          "image": "https://www.syodai-marugen.jp/wp-content/themes/official2026/legacy/img/menu/season/2609_toripaitan/season_menu1.webp"
-        },
-        {
-          "id": "marugen_lim_2",
-          "brand": "丸源ラーメン",
-          "brandSlug": "marugen",
-          "category": "期間限定",
-          "name": "焦がし葱油 鶏白湯そば",
-          "description": "仕上げに添えた焦がし葱油の⾹ばしい⾵味が、鶏⽩湯のコクをさらに引き⽴て、最後の⼀滴まで飽きさせない奥深い⼀杯です。",
-          "price": "¥1,023",
-          "sourceUrl": "https://www.syodai-marugen.jp/menu/season/2609_toripaitan",
-          "emoji": "🍜",
-          "bg": "#fde8e8",
-          "isLimited": true,
-          "isNew": true,
-          "isOfficial": true,
-          "sourceDate": "期間限定メニュー",
-          "image": "https://www.syodai-marugen.jp/wp-content/themes/official2026/legacy/img/menu/season/2609_toripaitan/season_menu2.webp"
-        },
-        {
-          "id": "marugen_lim_3",
-          "brand": "丸源ラーメン",
-          "brandSlug": "marugen",
-          "category": "期間限定",
           "name": "熟成醤油 丸源五目そば",
           "description": "醤油とオイスターソースをブレンドした、旨みとコクのあるスープに8種の具材(海老・豚肉・白菜・ヤングコーン・きくらげ・スナップエンドウ・人参・うずら)を加えた、味わい・彩り・食感を楽しんでいただける冬の定番商品です。",
           "price": "¥1,023",
@@ -644,7 +593,7 @@
           "image": "https://www.syodai-marugen.jp/wp-content/themes/official2026/legacy/img/menu/season/2611_gomoku/season_menu1.webp"
         },
         {
-          "id": "marugen_lim_4",
+          "id": "marugen_lim_2",
           "brand": "丸源ラーメン",
           "brandSlug": "marugen",
           "category": "期間限定",
@@ -661,7 +610,7 @@
           "image": "https://www.syodai-marugen.jp/wp-content/themes/official2026/legacy/img/menu/season/2611_gomoku/season_menu2.webp"
         },
         {
-          "id": "marugen_lim_5",
+          "id": "marugen_lim_3",
           "brand": "丸源ラーメン",
           "brandSlug": "marugen",
           "category": "期間限定",
