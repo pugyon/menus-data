@@ -2,11 +2,14 @@
 /**
 * fetch-direct-menus.mjs
 *
-* タベカル未収録チェーン（directOfficialOnly）の期間限定メニューを
-* 各公式サイトから直接取得し、menus.json を生成するスタンドアロンスクリプト。
+* 全13チェーンの期間限定メニューを menus.json に生成するスタンドアロンスクリプト。
+*  - 直接取得5チェーン（directOfficialOnly）: 各公式サイトから直接取得
+*  - タベカル系8チェーン: タベカルAPIで商品を取得し、公式画像を付与
 *
 * 取得ロジックは pugyon/Menus の scripts/sync-tabecal.js から移植したもの。
 * 外部依存なし（Node 20 組み込み fetch のみ）。永続キャッシュは持たず、
+* 画像解決のキャッシュとして前回生成された menus.json を読み、同一商品の
+* image を引き継いでから不足分だけを新規に解決する。
 * 取得失敗で0件になったチェーンは既存 menus.json の前回データを維持する。
 *
 * 出力:./menus.json
@@ -19,9 +22,59 @@ import { fileURLToPath} from 'node:url';
 
 const OUTPUT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'menus.json');
 const PRICE_PLACEHOLDER = '店舗公表値';
+const TABECAL_API_BASE = 'https://tabecal.com/api/v1';
 
-/* 対象チェーン（pugyon/Menus の chains.json で directOfficialOnly: true の5件と同内容） */
+/* 対象チェーン（pugyon/Menus の chains.json の13件と同内容。
+   directOfficialOnly: true の5件は公式サイト直接取得、それ以外はタベカルAPI経由） */
 const CHAINS = [
+{
+id: 'bikkuri-donkey', name: 'びっくりドンキー', slug: 'bikkuri-donkey', domain: 'bikkuri-donkey.com',
+menuPage: 'https://www.bikkuri-donkey.com/menu/',
+logo: 'https://www.bikkuri-donkey.com/control-panel/wp-content/themes/donkey2022/images/logo.svg',
+emoji: '🌕', bg: '#fff3cd', defaultCategory: '期間限定', enabled: true
+},
+{
+id: 'mcdonalds', name: 'マクドナルド', slug: 'mcdonalds', domain: 'mcdonalds.co.jp',
+menuPage: 'https://www.mcdonalds.co.jp/menu/',
+logo: 'https://www.mcdonalds.co.jp/assets/images/mcd-logo.svg',
+emoji: '🍔', bg: '#fbe3c7', defaultCategory: '月見フェア', enabled: true
+},
+{
+id: 'gusto', name: 'ガスト', slug: 'gusto', domain: 'skylark.co.jp',
+menuPage: 'https://www.skylark.co.jp/gusto/menu/',
+logo: 'https://www.skylark.co.jp/site_resource/gusto/images/logo.svg',
+emoji: '🍳', bg: '#fce7df', defaultCategory: '新メニュー', enabled: true
+},
+{
+id: 'bamiyan', name: 'バーミヤン', slug: 'bamiyan', domain: 'skylark.co.jp',
+menuPage: 'https://www.skylark.co.jp/bamiyan/menu/',
+logo: 'https://takeout.skylark.co.jp/image/brand/bm.webp?t=1784170065024',
+emoji: '🥟', bg: '#faecd5', defaultCategory: '期間限定', enabled: true
+},
+{
+id: 'joyfull', name: 'ジョイフル', slug: 'joyfull', domain: 'joyfull.co.jp',
+menuPage: 'https://www.joyfull.co.jp/menu/',
+logo: 'https://files.joyfull.co.jp/assets/front/img/joyfull-logo-cut.png',
+emoji: '🍖', bg: '#ffecd9', defaultCategory: 'コラボ限定', enabled: true
+},
+{
+id: 'nakau', name: 'なか卯', slug: 'nakau', domain: 'nakau.co.jp',
+menuPage: 'https://www.nakau.co.jp/jp/menu/',
+logo: 'https://www.nakau.co.jp/jp/sp/assets/img/common/header_logo.png',
+emoji: '🍚', bg: '#fff2d9', enabled: true
+},
+{
+id: 'sushiro', name: 'スシロー', slug: 'sushiro', domain: 'akindo-sushiro.co.jp',
+menuPage: 'https://www.akindo-sushiro.co.jp/menu/',
+logo: 'https://www.akindo-sushiro.co.jp/assets/images/pages/common/office_logo.svg',
+emoji: '🍣', bg: '#fce8d5', defaultCategory: 'フェア限定', enabled: true
+},
+{
+id: 'yumean', name: '夢庵', slug: 'yumean', domain: 'skylark.co.jp',
+menuPage: 'https://www.skylark.co.jp/yumean/menu/',
+logo: 'https://www.skylark.co.jp/site_resource/yumean/images/logo.svg',
+emoji: '🍱', bg: '#e9f2dc', defaultCategory: '季節のおすすめ', enabled: true
+},
 {
 id: 'katsuya', name: 'かつや', slug: 'katsuya', domain: 'arclandservice.co.jp',
 menuPage: 'https://www.arclandservice.co.jp/katsuya/menu/',
@@ -264,6 +317,95 @@ return { url, quality: 'unverified', reason: 'name_not_found'};
  * ===================================================================== */
 const imageMemCache = new Map(); // `${brand}|${name}` -> result
 
+/* =====================================================================
+ * 公式JSONインデックス（スカイラーク: ガスト / バーミヤン / 夢庵）
+ * https://www.skylark.co.jp/{brand}/menu/json/menu_detail.json を
+ * 1回だけ取得し、商品名 → { image, sourceUrl, price } の対応表を作る。
+ * （sync-tabecal.js の loadSkylarkIndex 移植。画像・価格の両方に使う）
+ * ===================================================================== */
+const skylarkIndexCache = new Map(); // slug -> Map(normalizedName -> entry)
+const skylarkUidIndexCache = new Map(); // slug -> Map(menu_uid -> entry)
+
+function skylarkTaxIncludedPrice(v) {
+  const money = String(v?.money ?? '');
+  const taxInM = money.match(/税込\s*[¥￥]\s*([0-9,]+)/);
+  if (taxInM) return parseInt(taxInM[1].replace(/,/g, ''), 10);
+  const num = parseInt(money.replace(/[^0-9]/g, ''), 10);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  switch (String(v?.tax ?? '')) {
+    case '0': return num;
+    case '2': return Math.round(num * 1.1);
+    case '3': return Math.round(num * 1.08);
+    default: return null;
+  }
+}
+
+function skylarkEntryPrice(it) {
+  const vals = Array.isArray(it.valiation) ? it.valiation : [];
+  const prices = [];
+  for (const v of vals) {
+    const p = skylarkTaxIncludedPrice(v);
+    if (p != null) prices.push(p);
+  }
+  if (prices.length === 0) return '';
+  const uniq = [...new Set(prices)];
+  if (uniq.length === 1) return `¥${uniq[0].toLocaleString('ja-JP')}`;
+  return `¥${Math.min(...uniq).toLocaleString('ja-JP')}〜`;
+}
+
+async function loadSkylarkIndex(chain) {
+  const slug = chain.slug || chain.id;
+  if (skylarkIndexCache.has(slug)) return skylarkIndexCache.get(slug);
+  let index = null;
+  if ((chain.domain || '').includes('skylark.co.jp') && (slug === 'gusto' || slug === 'bamiyan' || slug === 'yumean')) {
+    try {
+      const res = await fetchWithRetry(`https://www.skylark.co.jp/${slug}/menu/json/menu_detail.json`, 10000, 1);
+      if (res) {
+        const json = await res.json();
+        const list = Array.isArray(json?.list) ? json.list : [];
+        index = new Map();
+        const uidIndex = new Map();
+        for (const it of list) {
+          if (!it.menu_name || !it.menu_uid) continue;
+          const imgPath = it.menu_image || it.meta?.image || '';
+          const entry = {
+            image: imgPath ? `https://www.skylark.co.jp${imgPath.startsWith('/') ? '' : '/'}${imgPath}` : '',
+            sourceUrl: `https://www.skylark.co.jp/${slug}/menu/menu_detail.html?mid=${it.menu_uid}`,
+            rawName: it.menu_name,
+            price: skylarkEntryPrice(it)
+          };
+          index.set(normalizeName(it.menu_name), entry);
+          uidIndex.set(String(it.menu_uid), entry);
+        }
+        skylarkUidIndexCache.set(slug, uidIndex);
+        console.log(`[Official JSON] ${chain.name}: menu_detail.json から ${index.size} 件のインデックスを構築`);
+      }
+    } catch (err) {
+      console.warn(`[Official JSON] ${chain.name}: 取得失敗`, err.message);
+    }
+  }
+  skylarkIndexCache.set(slug, index);
+  return index;
+}
+
+async function loadSkylarkUidIndex(chain) {
+  const slug = chain.slug || chain.id;
+  if (!skylarkUidIndexCache.has(slug)) await loadSkylarkIndex(chain);
+  return skylarkUidIndexCache.get(slug) || null;
+}
+
+function lookupSkylarkIndex(index, name) {
+  if (!index) return null;
+  const key = normalizeName(name);
+  if (index.has(key)) return index.get(key);
+  if (key.length >= 5) {
+    for (const [k, v] of index.entries()) {
+      if (k.includes(key) || key.includes(k)) return v;
+    }
+  }
+  return null;
+}
+
 const menuIndexHtmlCache = new Map();
 
 async function findProductPageOnIndex(chain, name) {
@@ -417,6 +559,17 @@ async function resolveOfficialImage({ brand, name, chain, sourceUrlHint = '' }) 
 
   const fallbackUrl = chain?.menuPage || sourceUrlHint || '';
   let result = null;
+
+  // 公式JSON（スカイラーク）を最優先で参照する（sync-tabecal.js と同じ順序）
+  if (!result && chain) {
+    const index = await loadSkylarkIndex(chain);
+    const hit = lookupSkylarkIndex(index, name);
+    if (hit && hit.image) {
+      result = { image: hit.image, sourceUrl: hit.sourceUrl, isOfficial: true, method: 'official_json' };
+    } else if (hit && hit.sourceUrl && !sourceUrlHint) {
+      sourceUrlHint = hit.sourceUrl;
+    }
+  }
 
   const isSpecificPage = (u) => u && chain?.menuPage && u !== chain.menuPage && !u.endsWith('/index.html');
   if (!result && isSpecificPage(sourceUrlHint)) {
@@ -940,6 +1093,191 @@ return items;
  * 価格リゾルバ（sync-tabecal.js の該当部分を移植）
  * '店舗公表値' の項目だけを対象にする（永続価格キャッシュは持たない）。
  * ===================================================================== */
+/* =====================================================================
+ * タベカル系チェーンの取得（sync-tabecal.js の syncTabecalChain 移植）
+ *  1. /changes?event=added（最新50件）で追加イベントのある商品を拾い、
+ *     直近2か月以内のものを料理単位のディッシュにする
+ *  2. /chains/{slug}/items?sort=updated（50件）で価格・栄養・カテゴリを補完
+ *     （追加イベントが0件のチェーンではこちらが主経路になる）
+ *  3. ノイズ（トッピング・単品・ソース等）を除外し、新しい順に最大10件
+ *  4. 公式画像は統合リゾルバ（前回 menus.json シード → 公式JSON →
+ *     og/JSON-LD → WP REST → Yahoo検索）で付ける
+ * ===================================================================== */
+async function fetchTabecalChainMenus(chain, previousItems) {
+  // 1. 各ブランドごとに最新の「added (新商品追加イベント)」50件を取得
+  let chainAdded = [];
+  if (chain.slug) {
+    try {
+      const cRes = await fetchWithRetry(`${TABECAL_API_BASE}/changes?event=added&chain=${chain.slug}&limit=50`, 6000, 1);
+      if (cRes && cRes.ok) {
+        const cJson = await cRes.json();
+        chainAdded = cJson.data || [];
+        console.log(`[Tabecal] ${chain.name}: /changes?event=added 最新${chainAdded.length}件取得完了`);
+      }
+    } catch (err) {
+      console.warn(`[Tabecal] ${chain.name} changes取得エラー:`, err.message);
+    }
+  }
+
+  // 2. 直近更新順の商品一覧 (sort=updated&limit=50) も取得して詳細情報を補完
+  let rawItems = [];
+  if (chain.slug) {
+    try {
+      const iRes = await fetchWithRetry(`${TABECAL_API_BASE}/chains/${chain.slug}/items?sort=updated&limit=50`, 6000, 1);
+      if (iRes && iRes.ok) {
+        const iJson = await iRes.json();
+        rawItems = iJson.data || [];
+      }
+    } catch (err) {
+      console.warn(`[Tabecal] ${chain.name} items取得エラー:`, err.message);
+    }
+  }
+
+  let fetchedItems = [];
+
+  // ノイズ除去フィルター（トッピング、追加ソース、ケチャップ、単品ドリンク等を除外）
+  const isNoise = (name) => {
+    return name.startsWith('[追加]') ||
+      name.startsWith('トッピング') ||
+      name.startsWith('単品') ||
+      name.startsWith('ミニサラダ') ||
+      name.includes('ソース') ||
+      name.includes('ドレッシング') ||
+      name.includes('ケチャップ') ||
+      name.includes('ドリンク') ||
+      name.includes('大盛');
+  };
+
+  if (chainAdded.length > 0 || rawItems.length > 0) {
+    const dishes = new Map();
+
+    // 直近2か月の基準日を動的に算出（ハードコーディングなし）
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const cutoffDateStr = twoMonthsAgo.toISOString().slice(0, 10);
+
+    // (A) ブランドごとの add 50件をまず確実にすべてディッシュ化
+    for (const a of chainAdded) {
+      const name = (a.name || '').trim();
+      if (!name || isNoise(name)) continue;
+
+      const eventDate = a.event_date || '';
+      // 直近2か月以内のもの（または日付情報なしで最近追加されたもの）を対象
+      if (eventDate && eventDate < cutoffDateStr) continue;
+
+      if (!dishes.has(name)) {
+        dishes.set(name, {
+          id: `tabecal_${chain.slug}_${a.item_key || Math.random().toString(36).slice(2, 8)}`,
+          brand: chain.name,
+          brandSlug: chain.slug,
+          category: chain.defaultCategory || '期間限定',
+          name: name,
+          prices: [],
+          kcals: a.new_value ? [parseFloat(a.new_value)] : [],
+          protein_g: null,
+          salt_g: null,
+          valid_from: eventDate,
+          emoji: chain.emoji || '🍽️',
+          bg: chain.bg || '#f3f4f6',
+          isLimited: true,
+          isNew: Boolean(eventDate >= cutoffDateStr),
+          addedEvent: a
+        });
+      }
+    }
+
+    // (B) rawItems から栄養情報・価格・カテゴリをマージ
+    for (const it of rawItems) {
+      const name = (it.name || '').trim();
+      if (!name || isNoise(name)) continue;
+
+      const validFrom = it.valid_from || '';
+
+      if (dishes.has(name)) {
+        const d = dishes.get(name);
+        if (it.price && !d.prices.includes(it.price)) d.prices.push(it.price);
+        if (it.kcal && !d.kcals.includes(it.kcal)) d.kcals.push(it.kcal);
+        if (it.protein_g != null) d.protein_g = it.protein_g;
+        if (it.salt_g != null) d.salt_g = it.salt_g;
+        if (it.category && d.category === (chain.defaultCategory || '期間限定')) d.category = it.category;
+        if (validFrom > d.valid_from) d.valid_from = validFrom;
+        if (d.valid_from >= cutoffDateStr) d.isNew = true;
+      } else if (chainAdded.length === 0) {
+        // chainAdded が0件の場合のフォールバック（直近2か月以内のもの）
+        if (validFrom && validFrom < cutoffDateStr) continue;
+
+        dishes.set(name, {
+          id: `tabecal_${chain.slug}_${it.item_key || Math.random().toString(36).slice(2, 8)}`,
+          brand: chain.name,
+          brandSlug: chain.slug,
+          category: it.category || chain.defaultCategory || '期間限定',
+          name: name,
+          prices: it.price ? [it.price] : [],
+          kcals: it.kcal ? [it.kcal] : [],
+          protein_g: it.protein_g,
+          salt_g: it.salt_g,
+          valid_from: validFrom,
+          emoji: chain.emoji || '🍽️',
+          bg: chain.bg || '#f3f4f6',
+          isLimited: true,
+          isNew: Boolean(validFrom >= cutoffDateStr),
+          addedEvent: null
+        });
+      }
+    }
+
+    // 新しい順（valid_from / event_date 降順）に最大10件を抽出
+    const sorted = Array.from(dishes.values()).sort((a, b) => {
+      return (b.valid_from || '').localeCompare(a.valid_from || '');
+    });
+
+    // ブランドごとに新しい順に最大10件まで厳選
+    fetchedItems = sorted.slice(0, 10);
+  }
+
+  // 3. APIで取得できた商品の整形 & 公式商品ページ/公式画像の解決
+  const results = [];
+  for (const d of fetchedItems) {
+    const priceStr = d.prices.length > 0
+      ? (d.prices.length > 1 ? `¥${Math.min(...d.prices).toLocaleString()}〜` : `¥${d.prices[0].toLocaleString()}`)
+      : PRICE_PLACEHOLDER;
+
+    const nutParts = [];
+    if (d.kcals.length > 0) {
+      nutParts.push(d.kcals.length > 1 ? `${Math.min(...d.kcals)}〜${Math.max(...d.kcals)}kcal` : `${d.kcals[0]}kcal`);
+    }
+    if (d.protein_g != null) nutParts.push(`P:${d.protein_g}g`);
+    if (d.salt_g != null) nutParts.push(`塩分:${d.salt_g}g`);
+
+    const nutText = nutParts.length > 0 ? `` : '';
+    const dateText = d.addedEvent ? `新発売 (${d.addedEvent.event_date})` : (d.valid_from ? `公表日: ${d.valid_from}` : '最新公表値');
+
+    d.price = priceStr;
+    d.description = `${nutText} タベカルAPI同期（公式栄養公表値）。${dateText}`;
+    d.sourceDate = dateText;
+    delete d.prices;
+    delete d.kcals;
+    delete d.score;
+
+    // 画像は統合パイプラインで解決（前回 menus.json シード → 公式JSON → og/JSON-LD → WP REST → Yahoo検索）
+    const prevItem = (previousItems || []).find(m => m.name === d.name);
+    const resolved = await resolveOfficialImage({
+      brand: d.brand,
+      name: d.name,
+      chain,
+      sourceUrlHint: prevItem?.sourceUrl || ''
+    });
+    d.image = resolved.image || '';
+    d.isOfficial = resolved.isOfficial;
+    d.imageMethod = resolved.method;
+    d.sourceUrl = resolved.sourceUrl || chain.menuPage;
+
+    results.push(d);
+  }
+
+  return results;
+}
+
 function formatPriceYen(n) {
   return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
@@ -1012,11 +1350,256 @@ async function resolvePriceGeneric(item, chain) {
   return null;
 }
 
+/* ---------- タベカル系チェーン向け価格リゾルバ（sync-tabecal.js 移植） ---------- */
+const SUSHIRO_REF_POINT = { lat: 35.6451, lng: 139.4976 }; // 東京都稲城市（最寄り店舗の特定用）
+let donkeyPriceIndexCache = undefined; // { shopName, byCode: Map } | null
+let nakauPriceIndexCache = undefined; // Map(normalizedName -> { price, rawName }) | null
+let sushiroStoreIndexCache = undefined; // { store, byName: Map } | null
+
+async function resolvePriceMcdonalds(item) {
+  const url = item.sourceUrl || '';
+  if (!/mcdonalds\.co\.jp\/products\//.test(url)) return null;
+  const html = await fetchTextCached(url);
+  if (!html) return null;
+  const pairs = [];
+  const re = /pdp__product-info-quantity['"]>([^<]+)<\/span>[\s\S]{0,260}?product-section-price-primary-val['"]>([0-9,]+)~?<\/span>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const price = parsePriceNumber(m[2]);
+    if (price != null) pairs.push({ label: m[1].trim(), price });
+  }
+  if (pairs.length === 0) {
+    const jm = html.match(/"price":"(\d+)"/);
+    return jm ? { price: formatPriceYen(parseInt(jm[1], 10)), method: 'mcdonalds_product_json' } : null;
+  }
+  const sizeM = item.name.match(/[(（]\s*([SML])\s*[)）]/);
+  let pick = null;
+  if (sizeM) pick = pairs.find(p => p.label === `${sizeM[1]}サイズ`);
+  if (!pick) pick = pairs.find(p => p.label === '単品');
+  if (!pick && pairs.length === 1) pick = pairs[0];
+  if (!pick) {
+    const jm = html.match(/"price":"(\d+)"/);
+    if (jm) return { price: formatPriceYen(parseInt(jm[1], 10)), method: 'mcdonalds_product_json' };
+    return null;
+  }
+  return { price: formatPriceYen(pick.price), method: 'mcdonalds_product_page' };
+}
+
+async function resolvePriceJoyfull(item) {
+  const url = item.sourceUrl || '';
+  if (!/joyfull\.co\.jp\/menu\//.test(url)) return null;
+  const html = await fetchTextCached(url);
+  if (!html) return null;
+  const taxOf = (block) => {
+    const mm = block.match(/（税込[¥￥]\s*([0-9,]+)）/);
+    return mm ? parsePriceNumber(mm[1]) : null;
+  };
+  if (item.name.includes('単品')) {
+    const subRe = /class="menu-title-sub">([^<]+)<\/div>\s*<div class="menu-price-sub">([\s\S]{0,140}?)<\/div>/g;
+    let m;
+    while ((m = subRe.exec(html)) !== null) {
+      if (m[1].trim() === '単品') {
+        const p = taxOf(m[2]);
+        if (p != null) return { price: formatPriceYen(p), method: 'joyfull_product_page' };
+      }
+    }
+    return null;
+  }
+  const mainM = html.match(/class="menu-price">([\s\S]{0,140}?)<\/div>/);
+  if (mainM) {
+    const p = taxOf(mainM[1]);
+    if (p != null) return { price: formatPriceYen(p), method: 'joyfull_product_page' };
+  }
+  return null;
+}
+
+async function resolvePriceSkylark(item, chain) {
+  if (!chain) return null;
+  const midM = (item.sourceUrl || '').match(/[?&]mid=([0-9]+_[0-9]+)/);
+  if (midM) {
+    const uidIndex = await loadSkylarkUidIndex(chain);
+    const byUid = uidIndex?.get(midM[1]);
+    if (byUid?.price) return { price: byUid.price, method: 'skylark_official_json' };
+  }
+  const index = await loadSkylarkIndex(chain);
+  const hit = lookupSkylarkIndex(index, item.name);
+  if (hit?.price) return { price: hit.price, method: 'skylark_official_json' };
+  return null;
+}
+
+async function loadDonkeyPriceIndex() {
+  if (donkeyPriceIndexCache !== undefined) return donkeyPriceIndexCache;
+  donkeyPriceIndexCache = null;
+  try {
+    const res = await fetch('https://www.bikkuri-donkey.com/wp-json/shop/list?v=20220830', {
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(60000)
+    });
+    if (res.ok) {
+      const shops = await res.json();
+      // 価格は店舗ごとに異なるため、東京都稲城市に近隣の店舗を優先して参照する
+      const preferredNames = ['狛江店', '聖蹟桜ヶ丘店', '府中けやき通り店', '西府中店'];
+      let shop = preferredNames.map(n => shops.find(s => s.shop_name === n)).find(Boolean);
+      if (!shop) {
+        shop = shops.find(s => s.representative_pref === 'tokyo' && s.shop_id === s.representative_shop_id)
+          || shops.find(s => s.pref === 'tokyo');
+      }
+      if (shop) {
+        const byCode = new Map();
+        for (const p of shop.price_list || []) {
+          const prices = (p.menu_kinds || []).map(k => parsePriceNumber(k.menu_price)).filter(v => v != null);
+          if (prices.length) byCode.set(String(p.menu_code), { name: p.menu_name, prices });
+        }
+        donkeyPriceIndexCache = { shopName: shop.shop_name, byCode };
+        console.log(`[Price] びっくりドンキー参照店舗: ${shop.shop_name}（価格表 ${byCode.size} 件）`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Price] びっくりドンキー店舗リストの取得に失敗:', err.message);
+  }
+  return donkeyPriceIndexCache;
+}
+
+async function resolvePriceBikkuriDonkey(item) {
+  const idx = await loadDonkeyPriceIndex();
+  if (!idx) return null;
+  let entry = null;
+  const codeM = (item.sourceUrl || '').match(/menu_(\d+)/);
+  if (codeM) entry = idx.byCode.get(codeM[1]) || null;
+  if (!entry) {
+    const target = normalizeName(item.name);
+    for (const v of idx.byCode.values()) {
+      if (normalizeName(v.name) === target) { entry = v; break; }
+    }
+  }
+  if (!entry) return null;
+  const uniq = [...new Set(entry.prices)];
+  if (uniq.length === 1) return { price: formatPriceYen(uniq[0]), method: 'bikkuri_shop_price_list' };
+  return { price: `¥${Math.min(...uniq).toLocaleString('ja-JP')}〜`, method: 'bikkuri_shop_price_list' };
+}
+
+async function loadNakauPriceIndex() {
+  if (nakauPriceIndexCache !== undefined) return nakauPriceIndexCache;
+  nakauPriceIndexCache = null;
+  try {
+    const top = await fetchText('https://www.nakau.co.jp/jp/menu/', 9000);
+    const cats = [...new Set([...(top || '').matchAll(/\/jp\/menu\/category\/(\d+)\.html/g)].map(m => m[1]))];
+    const index = new Map();
+    for (const c of cats) {
+      const html = await fetchText(`https://www.nakau.co.jp/jp/menu/category/${c}.html`, 9000);
+      if (!html) continue;
+      const blocks = html.match(/<li class="c-product_list_item[^"]*">[\s\S]*?<\/li>/g) || [];
+      for (const b of blocks) {
+        const nm = b.match(/<p>\s*([^<]+?)\s*<\/p>/);
+        if (!nm) continue;
+        const name = nm[1].trim();
+        const rows = [...b.matchAll(/c-product_list_block_price_unit">([^<]*)<\/span>\s*<span>([0-9,]+)<\/span>/g)]
+          .map(r => ({ unit: r[1].trim(), price: parsePriceNumber(r[2]) }))
+          .filter(r => r.price != null);
+        let price = null;
+        if (rows.length) {
+          price = (rows.find(r => r.unit === '並盛' || r.unit === '並') || rows[0]).price;
+        } else {
+          const sm = b.match(/<span>([0-9,]+)<\/span>\s*円\(税込\)/);
+          if (sm) price = parsePriceNumber(sm[1]);
+        }
+        const key = normalizeName(name);
+        if (price != null && !index.has(key)) index.set(key, { price, rawName: name });
+      }
+    }
+    if (index.size > 0) {
+      nakauPriceIndexCache = index;
+      console.log(`[Price] なか卯メニュー索引: ${index.size} 件`);
+    }
+  } catch (err) {
+    console.warn('[Price] なか卯メニュー索引の構築に失敗:', err.message);
+  }
+  return nakauPriceIndexCache;
+}
+
+async function resolvePriceNakau(item) {
+  const index = await loadNakauPriceIndex();
+  if (!index) return null;
+  const key = normalizeName(item.name);
+  if (index.has(key)) return { price: formatPriceYen(index.get(key).price), method: 'nakau_menu_list' };
+  const base = normalizeName(item.name.replace(/[(（]単品[)）]\s*$/, ''));
+  if (base && base !== key) {
+    if (index.has(base)) return { price: formatPriceYen(index.get(base).price), method: 'nakau_menu_list' };
+    const cands = [...index.entries()].filter(([k]) => k.startsWith(base + '('));
+    if (cands.length === 1) return { price: formatPriceYen(cands[0][1].price), method: 'nakau_menu_list' };
+  }
+  return null;
+}
+
+async function loadSushiroStoreIndex() {
+  if (sushiroStoreIndexCache !== undefined) return sushiroStoreIndexCache;
+  sushiroStoreIndexCache = null;
+  let store = null;
+  try {
+    const res = await fetch(
+      `https://www.akindo-sushiro.co.jp/lacne/shop/api/gps.php?lat=${SUSHIRO_REF_POINT.lat}&lng=${SUSHIRO_REF_POINT.lng}`,
+      { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(10000) }
+    );
+    if (res.ok) {
+      const json = await res.json();
+      const nearest = (json.items || [])[0];
+      if (nearest && nearest.sushipass_id) {
+        store = {
+          name: nearest.name,
+          shopId: String(nearest.id),
+          sushipassId: String(nearest.sushipass_id),
+          city: nearest.city_name || ''
+        };
+      }
+    }
+  } catch {
+    // GPS APIが使えない場合はスシローの価格統一をスキップする
+  }
+  if (!store?.sushipassId) return null;
+  const html = await fetchText(`https://www.akindo-sushiro.co.jp/menu/menu_detail/?s_id=${store.sushipassId}`, 20000);
+  if (!html) return null;
+  const byName = new Map();
+  const re = /<div class="menu-item__name">([^<]+)<\/div>\s*<div class="menu-item__price">\s*([0-9,]+)円\(税込\)\s*<\/div>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const key = normalizeName(m[1].trim());
+    const price = parsePriceNumber(m[2]);
+    if (price != null && !byName.has(key)) byName.set(key, price);
+  }
+  if (byName.size === 0) return null;
+  sushiroStoreIndexCache = { store, byName };
+  console.log(`[Price] スシロー参照店舗: ${store.name}（s_id=${store.sushipassId}、メニュー ${byName.size} 件）`);
+  return sushiroStoreIndexCache;
+}
+
+// スシローは価格が店舗依存のため、価格のある項目も含め全項目を
+// 稲城市の最寄り店舗の価格で統一する（sync-tabecal.js と同じ方針）
+async function applySushiroPrices(items) {
+  const sushiro = await loadSushiroStoreIndex();
+  if (!sushiro) return;
+  for (const item of items) {
+    const hit = sushiro.byName.get(normalizeName(item.name));
+    if (hit != null) {
+      item.price = formatPriceYen(hit);
+      item.priceMethod = 'sushiro_store_menu';
+    }
+  }
+}
+
 async function resolveItemPrice(item, chain) {
   const slug = chain?.slug || item.brandSlug || '';
   try {
-    if (slug === 'sutadonya') return await resolvePriceSutadonya(item);
-    return await resolvePriceGeneric(item, chain);
+    switch (slug) {
+      case 'sutadonya': return await resolvePriceSutadonya(item);
+      case 'mcdonalds': return await resolvePriceMcdonalds(item);
+      case 'joyfull': return await resolvePriceJoyfull(item);
+      case 'gusto':
+      case 'bamiyan':
+      case 'yumean': return await resolvePriceSkylark(item, chain);
+      case 'bikkuri-donkey': return await resolvePriceBikkuriDonkey(item);
+      case 'nakau': return await resolvePriceNakau(item);
+      default: return await resolvePriceGeneric(item, chain);
+    }
   } catch (err) {
     console.warn(`[Price] ${item.brand}「${item.name}」の価格解決中にエラー:`, err.message);
     return null;
@@ -1033,6 +1616,32 @@ async function main() {
     previous = JSON.parse(await readFile(OUTPUT_PATH, 'utf-8'));
   } catch { /* 初回は無し */ }
 
+  // 前回 menus.json を画像解決のキャッシュとして imageMemCache にシードする。
+  // 同一商品（ブランド＋商品名）があれば image を引き継ぎ、不足分だけを
+  // 新規に解決する（週次 Actions の新規環境でも精度が落ちないようにするため）
+  let seededImages = 0;
+  if (previous?.chains) {
+    for (const prevChain of Object.values(previous.chains)) {
+      for (const m of prevChain?.items || []) {
+        if (!m || !m.image || !m.brand || !m.name) continue;
+        if (isGenericImageUrl(m.image)) continue; // 汎用画像・アバター等はシードしない
+        const key = `${m.brand}|${m.name}`;
+        if (!imageMemCache.has(key)) {
+          imageMemCache.set(key, {
+            image: m.image,
+            sourceUrl: m.sourceUrl || '',
+            isOfficial: m.isOfficial !== false,
+            method: m.imageMethod || 'prev_menus_json'
+          });
+          seededImages++;
+        }
+      }
+    }
+  }
+  if (seededImages > 0) {
+    console.log(`[Image Cache] 前回 menus.json から ${seededImages} 件の画像をシードしました`);
+  }
+
   const chainsOut = {};
   const warnings = [];
   let total = 0;
@@ -1042,7 +1651,12 @@ async function main() {
     console.log(`[Fetch] ${chain.name} (${slug}) 取得中...`);
     let items = [];
     try {
-      items = await fetchOfficialLimitedMenus(chain);
+      if (chain.directOfficialOnly) {
+        items = await fetchOfficialLimitedMenus(chain);
+      } else {
+        const prevItems = previous?.chains?.[slug]?.items;
+        items = await fetchTabecalChainMenus(chain, Array.isArray(prevItems) ? prevItems : []);
+      }
     } catch (err) {
       console.warn(`[Fetch] ${chain.name}: 取得エラー`, err.message);
       items = [];
@@ -1071,6 +1685,11 @@ async function main() {
       for (const it of items) {
         const r = await classifyItemLink({ name: it.name, chain, url: it.sourceUrl || '' });
         if (r.url !== (it.sourceUrl || '')) it.sourceUrl = r.url;
+      }
+
+      // スシローは価格のある項目も含め最寄り店舗の価格で統一する
+      if (slug === 'sushiro') {
+        await applySushiroPrices(items);
       }
 
       // 価格リゾルバ（'店舗公表値' の項目のみ）
