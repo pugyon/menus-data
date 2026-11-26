@@ -2,9 +2,9 @@
 /**
 * fetch-direct-menus.mjs
 *
-* 全13チェーンの期間限定メニューを menus.json に生成するスタンドアロンスクリプト。
+* 全14チェーンの期間限定メニューを menus.json に生成するスタンドアロンスクリプト。
 *  - 直接取得5チェーン（directOfficialOnly）: 各公式サイトから直接取得
-*  - タベカル系8チェーン: タベカルAPIで商品を取得し、公式画像を付与
+*  - タベカル系9チェーン: タベカルAPIで商品を取得し、公式画像を付与
 *
 * 取得ロジックは pugyon/Menus の scripts/sync-tabecal.js から移植したもの。
 * 外部依存なし（Node 20 組み込み fetch のみ）。永続キャッシュは持たず、
@@ -24,7 +24,7 @@ const OUTPUT_PATH = join(dirname(fileURLToPath(import.meta.url)), 'menus.json');
 const PRICE_PLACEHOLDER = '店舗公表値';
 const TABECAL_API_BASE = 'https://tabecal.com/api/v1';
 
-/* 対象チェーン（pugyon/Menus の chains.json の13件と同内容。
+/* 対象チェーン（pugyon/Menus の chains.json の14件と同内容。
    directOfficialOnly: true の5件は公式サイト直接取得、それ以外はタベカルAPI経由） */
 const CHAINS = [
 {
@@ -74,6 +74,12 @@ id: 'yumean', name: '夢庵', slug: 'yumean', domain: 'skylark.co.jp',
 menuPage: 'https://www.skylark.co.jp/yumean/menu/',
 logo: 'https://www.skylark.co.jp/site_resource/yumean/images/logo.svg',
 emoji: '🍱', bg: '#e9f2dc', defaultCategory: '季節のおすすめ', enabled: true
+},
+{
+id: 'olive-no-oka', name: 'オリーブの丘', slug: 'olive-no-oka', domain: 'olivenooka.jp',
+menuPage: 'https://www.olivenooka.jp/menu/index.html',
+logo: 'https://www.olivenooka.jp/images/common/logo.png',
+emoji: '🫒', bg: '#eef2dc', defaultCategory: '期間限定', enabled: true
 },
 {
 id: 'katsuya', name: 'かつや', slug: 'katsuya', domain: 'arclandservice.co.jp',
