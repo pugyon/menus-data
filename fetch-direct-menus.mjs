@@ -1592,10 +1592,46 @@ async function applySushiroPrices(items) {
   }
 }
 
+/* ---------- オリーブの丘 価格リゾルバ ----------
+ * 公式メニューページは /menu/data/menu_*.csv を読み込んで描画しており、価格はその CSV が正。
+ * 列は [名前, 税抜, 税込, 画像, ...]。タベカル側のランチ表記「(スープ・サラダ除く)」を
+ * 外した名前でも照合するが、部分一致はしない（別商品の価格を付けないため）。 */
+const OLIVE_CSV_FILES = ['menu_season', 'menu_pasta', 'menu_pizza', 'menu_appetizer', 'menu_meat', 'menu_rice', 'menu_desert', 'menu_kids', 'menu_drink'];
+let olivePriceIndexCache = undefined; // Map(name -> 税込価格) | null
+
+async function loadOlivePriceIndex() {
+  if (olivePriceIndexCache !== undefined) return olivePriceIndexCache;
+  const byName = new Map();
+  for (const f of OLIVE_CSV_FILES) {
+    const text = await fetchText(`https://www.olivenooka.jp/menu/data/${f}.csv`);
+    if (!text) continue;
+    const lines = text.trim().split(/\r?\n/).slice(1);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const cols = (line.includes('\t') ? line.split('\t') : line.split(',')).map(c => c.trim());
+      const taxin = parsePriceNumber(cols[2]);
+      if (cols[0] && taxin != null && !byName.has(cols[0])) byName.set(cols[0], taxin);
+    }
+  }
+  olivePriceIndexCache = byName.size > 0 ? byName : null;
+  if (olivePriceIndexCache) console.log(`[Price] オリーブの丘: 公式CSVから ${byName.size} 件の価格インデックスを構築`);
+  return olivePriceIndexCache;
+}
+
+async function resolvePriceOlive(item) {
+  const index = await loadOlivePriceIndex();
+  if (!index) return null;
+  const stripped = item.name.replace(/[（(]スープ・サラダ除く[）)]/g, '').trim();
+  const hit = index.get(item.name) ?? index.get(stripped);
+  if (hit != null) return { price: formatPriceYen(hit), method: 'olive_official_csv' };
+  return null;
+}
+
 async function resolveItemPrice(item, chain) {
   const slug = chain?.slug || item.brandSlug || '';
   try {
     switch (slug) {
+      case 'olive-no-oka': return await resolvePriceOlive(item);
       case 'sutadonya': return await resolvePriceSutadonya(item);
       case 'mcdonalds': return await resolvePriceMcdonalds(item);
       case 'joyfull': return await resolvePriceJoyfull(item);

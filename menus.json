@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-26T10:03:56.417997Z",
+  "generated_at": "2026-11-26T10:28:12.754298Z",
   "chains": {
     "bikkuri-donkey": {
       "name": "びっくりドンキー",
@@ -2585,13 +2585,14 @@
             "new_value": "422.0",
             "item_key": "39a5fc9bbc6cd137"
           },
-          "price": "店舗公表値",
+          "price": "¥594",
           "description": " タベカルAPI同期（公式栄養公表値）。新発売 (2026-11-04)",
           "sourceDate": "新発売 (2026-11-04)",
           "image": "https://www.olivenooka.jp/menu/images/menu/g03.png",
           "isOfficial": true,
           "imageMethod": "official_site_search",
-          "sourceUrl": "https://www.olivenooka.jp/menu/meat-dishes.html"
+          "sourceUrl": "https://www.olivenooka.jp/menu/meat-dishes.html",
+          "priceMethod": "olive_official_csv"
         },
         {
           "id": "tabecal_olive-no-oka_6ef35c1caa90e2fe",
@@ -2618,13 +2619,14 @@
             "new_value": "479.0",
             "item_key": "6ef35c1caa90e2fe"
           },
-          "price": "店舗公表値",
+          "price": "¥649",
           "description": " タベカルAPI同期（公式栄養公表値）。新発売 (2026-11-04)",
           "sourceDate": "新発売 (2026-11-04)",
           "image": "https://www.olivenooka.jp/menu/images/menu/g09.png",
           "isOfficial": true,
           "imageMethod": "official_site_search",
-          "sourceUrl": "https://www.olivenooka.jp/menu/meat-dishes.html"
+          "sourceUrl": "https://www.olivenooka.jp/menu/meat-dishes.html",
+          "priceMethod": "olive_official_csv"
         },
         {
           "id": "tabecal_olive-no-oka_a5366c66209b985a",
@@ -2684,13 +2686,14 @@
             "new_value": "344.0",
             "item_key": "ba0329c42b0f1c96"
           },
-          "price": "店舗公表値",
+          "price": "¥649",
           "description": " タベカルAPI同期（公式栄養公表値）。新発売 (2026-11-04)",
           "sourceDate": "新発売 (2026-11-04)",
           "image": "https://www.olivenooka.jp/images/slider/dolce_2611_pc.jpg",
           "isOfficial": true,
           "imageMethod": "official_site_search",
-          "sourceUrl": "https://www.olivenooka.jp/menu/index.html"
+          "sourceUrl": "https://www.olivenooka.jp/menu/index.html",
+          "priceMethod": "olive_official_csv"
         },
         {
           "id": "tabecal_olive-no-oka_efeb4512935abaf3",
@@ -2750,13 +2753,14 @@
             "new_value": "679.0",
             "item_key": "69b97455e054153b"
           },
-          "price": "店舗公表値",
+          "price": "¥869",
           "description": " タベカルAPI同期（公式栄養公表値）。新発売 (2026-11-01)",
           "sourceDate": "新発売 (2026-11-01)",
           "image": "https://www.olivenooka.jp/menu/images/menu/a05.png",
           "isOfficial": true,
           "imageMethod": "official_site_search",
-          "sourceUrl": "https://www.olivenooka.jp/menu/season.html"
+          "sourceUrl": "https://www.olivenooka.jp/menu/season.html",
+          "priceMethod": "olive_official_csv"
         }
       ]
     },
